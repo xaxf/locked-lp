@@ -108,6 +108,33 @@ input[type=text]:focus,select:focus{border-color:var(--accent);outline:none}
   background:repeating-linear-gradient(180deg,var(--turf-a) 0 7.14%,var(--turf-b) 7.14% 14.28%);
   box-shadow:inset 0 0 70px rgba(0,0,0,.4);
 }
+.pitch .bgimg{
+  position:absolute;inset:0;background-size:cover;background-position:center;
+  opacity:var(--bg-op,.5);pointer-events:none;
+}
+
+/* ---------- style widget ---------- */
+.stylebtn{position:relative}
+.stylepop{
+  position:absolute;top:calc(100% + 8px);right:0;z-index:40;width:230px;
+  background:var(--raised);border:1px solid var(--edge2);border-radius:var(--r);
+  padding:14px;display:none;flex-direction:column;gap:12px;
+  box-shadow:0 12px 30px rgba(0,0,0,.5);
+}
+.stylepop.open{display:flex}
+.stylepop .srow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.stylepop label{
+  font-family:var(--disp);font-weight:500;text-transform:uppercase;
+  letter-spacing:.08em;font-size:10.5px;color:var(--mute);
+}
+.stylepop input[type=color]{
+  width:34px;height:26px;padding:0;border:1px solid var(--edge2);border-radius:var(--r2);
+  background:none;cursor:pointer;
+}
+.stylepop input[type=range]{width:100%;accent-color:var(--accent)}
+.stylepop .filebtn{width:100%;text-align:center}
+.stylepop .clearbg{font-size:10.5px;color:var(--mute)}
+.stylepop .clearbg:hover{color:var(--ink2)}
 .pitch .line{position:absolute;border:2px solid rgba(255,255,255,.8)}
 .p-out{inset:2.2% 4%}
 .p-half{left:4%;right:4%;top:50%;border-width:0 0 2px 0}
@@ -253,6 +280,18 @@ dialog .db{padding:18px;display:flex;flex-direction:column;gap:10px}
     <button class="btn" id="btnReset">Reset</button>
   </div>
   <button class="btn accent" id="btnImg">Download image</button>
+  <div class="stylebtn">
+    <button class="btn" id="btnStyle">Style</button>
+    <div class="stylepop" id="stylePop">
+      <div class="srow"><label for="cKit">Kit color</label><input type="color" id="cKit"></div>
+      <div class="srow"><label for="cTurf">Field color</label><input type="color" id="cTurf"></div>
+      <div class="srow"><label for="bgOpacity">Background opacity</label></div>
+      <input type="range" id="bgOpacity" min="0" max="100" value="50">
+      <button class="btn tiny filebtn" id="btnBg">Upload background image</button>
+      <button class="btn tiny clearbg" id="btnBgClear">Remove background image</button>
+      <input type="file" id="bgFileIn" accept="image/*" hidden>
+    </div>
+  </div>
   <input type="file" id="fileIn" accept="application/json" hidden>
 </header>
 
@@ -263,6 +302,7 @@ dialog .db{padding:18px;display:flex;flex-direction:column;gap:10px}
     <h2>The pitch <span class="h2r"><button class="btn tiny" id="btnPos">Reset positions</button><em id="pitchMeta">4-4-2</em></span></h2>
     <div class="pitchwrap">
       <div class="pitch" id="pitch">
+        <div class="bgimg" id="pitchBg"></div>
         <div class="line p-out"></div>
         <div class="line p-half"></div>
         <div class="line p-circle"></div>
@@ -333,6 +373,7 @@ const blank = () => ({
   formation:'4-4-2',
   players: Array.from({length:11}, (_,i) => ({name:'', num:i+1, slots:[null,null]})),
   positions: Array(11).fill(null),   // per-player [x,y] overrides, null = use formation
+  style:{kit:'#d63a3a', turfA:'#3d8a34', turfB:'#347a2c', bgImg:null, bgOpacity:.5},
 });
 let S = blank();
 let selected = 0;      // player index
@@ -355,6 +396,25 @@ function shirtSVG(num){
     <text x="32" y="41" text-anchor="middle" font-family="Space Grotesk, system-ui, sans-serif"
       font-size="22" font-weight="700" fill="#fff">${num}</text>
   </svg>`;
+}
+
+function shade(hex, amt){
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (n >> 16) + amt));
+  const g2 = Math.max(0, Math.min(255, ((n >> 8) & 0xff) + amt));
+  const b = Math.max(0, Math.min(255, (n & 0xff) + amt));
+  return '#' + ((1<<24) + (r<<16) + (g2<<8) + b).toString(16).slice(1);
+}
+function applyStyle(){
+  const st = S.style || (S.style = blank().style);
+  document.documentElement.style.setProperty('--kit', st.kit);
+  document.documentElement.style.setProperty('--turf-a', st.turfA);
+  document.documentElement.style.setProperty('--turf-b', st.turfB || shade(st.turfA, -18));
+  document.documentElement.style.setProperty('--bg-op', st.bgOpacity);
+  const bg = $('#pitchBg');
+  bg.style.backgroundImage = st.bgImg ? `url(${st.bgImg})` : 'none';
+  $('#cKit').value = st.kit; $('#cTurf').value = st.turfA;
+  $('#bgOpacity').value = Math.round(st.bgOpacity * 100);
 }
 
 function renderPitch(){
@@ -583,11 +643,20 @@ function loadArt(w){
 }
 const DISP = w => `${w} "Space Grotesk",system-ui,sans-serif`;
 
-function drawPitch(g, ox, oy, w, h){
+function drawPitch(g, ox, oy, w, h, bgImg){
+  const st = S.style || blank().style;
   const bands = 14, bh = h / bands;
   for(let i = 0; i < bands; i++){
-    g.fillStyle = i % 2 ? '#347a2c' : '#3d8a34';
+    g.fillStyle = i % 2 ? (st.turfB || shade(st.turfA, -18)) : st.turfA;
     g.fillRect(ox, oy + i * bh, w, bh + .6);
+  }
+  if(bgImg){
+    g.save();
+    g.globalAlpha = st.bgOpacity != null ? st.bgOpacity : .5;
+    const r = Math.max(w / bgImg.width, h / bgImg.height);
+    g.drawImage(bgImg, ox + (w - bgImg.width * r) / 2, oy + (h - bgImg.height * r) / 2,
+                bgImg.width * r, bgImg.height * r);
+    g.restore();
   }
   // inset shadow, same feel as the CSS box-shadow
   const vig = g.createRadialGradient(ox + w/2, oy + h/2, Math.min(w,h) * .25,
@@ -630,7 +699,7 @@ function drawShirt(g, cx, topY, w, num){
   g.shadowBlur = 5; g.shadowOffsetY = 3.4;
   g.fillStyle = '#ffffff'; g.fill(SHIRT_OUT);
   g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
-  g.fillStyle = '#d63a3a'; g.fill(SHIRT_RED);
+  g.fillStyle = (S.style && S.style.kit) || '#d63a3a'; g.fill(SHIRT_RED);
   g.fillStyle = '#ffffff';
   g.beginPath(); g.ellipse(32, 6.5, 7.5, 3.2, 0, 0, Math.PI * 2); g.fill();
   g.font = DISP('700 22px'); g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -643,6 +712,14 @@ async function exportPNG(){
   try{ if(document.fonts) await document.fonts.ready; }catch(e){}
   const used = [...new Set(S.players.flatMap(p => p.slots.filter(Boolean).map(s => s.id)))];
   await Promise.all(used.map(id => loadArt(BY_ID[id])));
+  let bgImg = null;
+  if(S.style && S.style.bgImg){
+    bgImg = await new Promise(res => {
+      const im = new Image();
+      im.onload = () => res(im); im.onerror = () => res(null);
+      im.src = S.style.bgImg;
+    });
+  }
 
   const W = 1100, PH = Math.round(W * 56 / 41);
   const dpr = 2, c = document.createElement('canvas');
@@ -650,7 +727,7 @@ async function exportPNG(){
   const g = c.getContext('2d'); g.scale(dpr, dpr);
   g.textBaseline = 'middle';
 
-  drawPitch(g, 0, 0, W, PH);
+  drawPitch(g, 0, 0, W, PH, bgImg);
 
   S.players.forEach((p, i) => {
     const [px, py] = posOf(i);
@@ -703,10 +780,22 @@ async function exportPNG(){
     });
   });
 
-  c.toBlob(blob => {
+  const filename = (S.team || 'squad').replace(/\W+/g, '-').toLowerCase() + '-lineup.png';
+  c.toBlob(async blob => {
+    if(window.claude){
+      try{
+        const downloads = await window.claude.use('downloads');
+        if(downloads){
+          const buf = await blob.arrayBuffer();
+          await downloads.save({filename, data: buf});
+          btn.textContent = old;
+          return;
+        }
+      }catch(e){}
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = (S.team || 'squad').replace(/\W+/g, '-').toLowerCase() + '-lineup.png';
+    a.download = filename;
     a.click(); URL.revokeObjectURL(a.href);
     btn.textContent = old;
   }, 'image/png');
@@ -731,13 +820,21 @@ $('#btnImg').onclick = exportPNG;
 $('#btnReset').onclick = () => {
   if(!confirm('Clear every player and weapon?')) return;
   S = blank(); selected = 0; armed = 0;
-  $('#teamname').value = S.team; fsel.value = S.formation; renderAll();
+  $('#teamname').value = S.team; fsel.value = S.formation; renderAll(); applyStyle();
 };
-$('#btnSave').onclick = () => {
-  const blob = new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+$('#btnSave').onclick = async () => {
+  const json = JSON.stringify(S,null,2);
+  const filename = (S.team || 'squad').replace(/\W+/g,'-').toLowerCase() + '-locked2.json';
+  if(window.claude){
+    try{
+      const downloads = await window.claude.use('downloads');
+      if(downloads){ await downloads.save({filename, data: json}); return; }
+    }catch(e){}
+  }
+  const blob = new Blob([json],{type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = (S.team || 'squad').replace(/\W+/g,'-').toLowerCase() + '-locked2.json';
+  a.download = filename;
   a.click(); URL.revokeObjectURL(a.href);
 };
 $('#btnLoad').onclick = () => $('#fileIn').click();
@@ -749,8 +846,9 @@ $('#fileIn').onchange = e => {
       const d = JSON.parse(r.result);
       S = Object.assign(blank(), d);
       if(!Array.isArray(S.positions) || S.positions.length !== 11) S.positions = Array(11).fill(null);
+      if(!S.style) S.style = blank().style;
       $('#teamname').value = S.team; fsel.value = S.formation;
-      selected = 0; armed = 0; renderAll();
+      selected = 0; armed = 0; renderAll(); applyStyle();
     }catch(err){ alert('That file is not a saved squad.'); }
   };
   r.readAsText(f); e.target.value = '';
@@ -767,8 +865,25 @@ $('#btnCopy').onclick = () => {
     () => prompt('Copy your squad:', text));
 };
 
+$('#btnStyle').onclick = e => { e.stopPropagation(); $('#stylePop').classList.toggle('open'); };
+document.addEventListener('click', e => {
+  if(!e.target.closest('.stylebtn')) $('#stylePop').classList.remove('open');
+});
+$('#cKit').oninput = e => { S.style.kit = e.target.value; applyStyle(); };
+$('#cTurf').oninput = e => { S.style.turfA = e.target.value; S.style.turfB = shade(e.target.value, -18); applyStyle(); };
+$('#bgOpacity').oninput = e => { S.style.bgOpacity = e.target.value / 100; applyStyle(); };
+$('#btnBg').onclick = () => $('#bgFileIn').click();
+$('#bgFileIn').onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => { S.style.bgImg = r.result; applyStyle(); };
+  r.readAsDataURL(f); e.target.value = '';
+};
+$('#btnBgClear').onclick = () => { S.style.bgImg = null; applyStyle(); };
+
 renderChips();
 renderAll();
+applyStyle();
 </script>
 </body>
 </html>
